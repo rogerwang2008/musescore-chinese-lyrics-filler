@@ -1,0 +1,13 @@
+# 统一换行，避免 shell 脚本被改成 CRLF 后无法执行
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.qml  text eol=lf
+*.mjs  text eol=lf
+*.md   text eol=lf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary

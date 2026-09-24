@@ -1,0 +1,25 @@
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Node（仅测试用）
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# MuseScore 本地产物
+*.mscz
+*.mscx
+*.mscx.*
+*.mscz-*
+musedata/
+session/
+
+# 临时导出与日志
+*.log
+backup/

@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 无第三方依赖，直接跑；测试会从 lyricsfiller.qml 里
+      # 截取分词代码执行，所以测的就是插件真正会跑的那份逻辑。
+      - name: Run tests
+        run: npm test
