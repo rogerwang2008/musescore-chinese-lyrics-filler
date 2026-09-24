@@ -51,8 +51,9 @@ MuseScore Studio 4.x 的自动填词插件：从系统剪贴板读取歌词，�
 
 ### 方式一：下载发布包（最简单）
 
-到仓库的 **Releases** 页下载 `LyricsFiller-vX.Y.Z.zip`，解压后把
-**`LyricsFiller` 整个文件夹**放进 MuseScore 的用户插件目录（见下表），重启 MuseScore。
+到 [Releases](https://github.com/rogerwang2008/musescore-chinese-lyrics-filler/releases/latest)
+下载 `LyricsFiller-vX.Y.Z.zip`，解压后把 **`LyricsFiller` 整个文件夹**放进 MuseScore
+的用户插件目录（见下表），重启 MuseScore。
 
 ### 方式二：脚本
 
