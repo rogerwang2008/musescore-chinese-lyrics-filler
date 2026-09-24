@@ -272,11 +272,13 @@ re-action [test word] go
 
 ```bash
 npm test
-# 等价于：node --test "tests/*.test.mjs"
+# 等价于：node --test      （不带路径，用 Node 的默认测试文件发现规则）
 ```
 
-> 引号不能省。glob 交给 Node 自己展开，Windows 的 cmd 和 CI 的 bash 行为才一致；
-> 写成 `node --test tests/` 在 Node 24 上会被当成模块路径而报 MODULE_NOT_FOUND。
+> 这里刻意不写路径。`node --test tests/` 会被当成模块路径报 MODULE_NOT_FOUND，
+> `node --test "tests/*.test.mjs"` 依赖 Node 21+ 才支持的 glob，而 CI 固定在 Node 20
+> （这两点都实测踩过，CI 会直接红）。不带参数则在 18/20/22/24 上行为一致，
+> 默认匹配 `**/*.test.mjs`，新增测试文件不需要再改 package.json。
 
 测试不依赖 MuseScore，分四块：
 
