@@ -35,7 +35,7 @@ import Muse.Ui
 import Muse.UiComponents
 
 MuseScore {
-    version: "1.0.0"
+    version: "1.1.0"
     title: qsTr("Lyrics Filler 自动填词")
     description: qsTr("Read lyrics from the clipboard and fill one syllable per note, with CJK / English tokenizing, tie and slur melisma handling.")
     pluginType: "dialog"
