@@ -40,8 +40,8 @@ MuseScore Studio 4.x 的自动填词插件：从系统剪贴板读取歌词，�
 ## 环境要求
 
 - **MuseScore Studio 4.x**。在 **4.7.5** 上开发验证。
-- 其中"延音线（Slur）只填首音"依赖 `Note.spannerForward / spannerBack`，
-  这两个属性从 **4.6** 起提供；4.0–4.5 上只会识别连音线（Tie），插件会在状态栏提示。
+- "延音线（Slur）只填首音"从谱面级的 `curScore.spanners` 读取延音线区间。
+  4.x 早期版本未实测；若读不到延音线，插件会退回"只识别连音线（Tie）"并在状态栏提示。
 - 测试脚本需要 Node.js（可选，仅开发时使用）。
 
 ---
@@ -141,8 +141,9 @@ Linux     ~/Documents/MuseScore4/Plugins/LyricsFiller
 ## 连音线与延音线
 
 - **连音线（Tie）**：同音高相连。检测 `Note.tieBack`，凡是有向后进线的音符一律留空。
-- **延音线（Slur）**：检测 `Note.spannerForward / spannerBack` 上的 Slur。
-  一段 slur 从第一个音开始，到结束音为止，中间的音符全部留空。
+- **延音线（Slur）**：从 `curScore.spanners` 里挑出所有 Slur，用
+  `spannerTick` / `spannerTicks` 划出 tick 区间，落在区间内（不含首音、含结束音）
+  的音符全部留空。
 
 两者都只在"首音"上消耗一个音节，实现**一字多音**。
 
@@ -172,7 +173,7 @@ Linux     ~/Documents/MuseScore4/Plugins/LyricsFiller
 | 谱表 / 声部 | 跟随选区 | 目标轨道；打开插件时会用当前选区预填 |
 | 只填选区 | 开（有选区时） | 关掉了就处理整条声部 |
 | 连音线只填首音 | 开 | 关掉后 tie 的每个音都各自吃一个音节 |
-| 延音线只填首音 | 开 | 见上一节；需要 MuseScore 4.6+ |
+| 延音线只填首音 | 开 | 见上一节 |
 | 为连音段画延长线 | 关 | 在首音歌词上加 extender |
 | 已有歌词 | 覆盖 | "跳过该音符"会保留原歌词不动 |
 | 位置 | 自动 | 只在选"上方/下方"时才写 `placement`，否则用软件默认 |
@@ -278,6 +279,20 @@ node --test "tests/tokenizer.test.mjs" "tests/plugin-format.test.mjs" "tests/qml
   `%LOCALAPPDATA%\MuseScore\MuseScore4\logs\MuseScore_*.log`，
   搜 `ExtensionBuilder::load`（加载失败）、`Qt |`（QML 运行时报错）、
   `ActionsDispatcher::doDispatch`（动作是否被触发）。
+- **插件里的 `console.log` 不进日志文件。** 想打印东西只能写到界面上的文本控件，
+  截图读回来。
+- **`Muse.UiComponents` 的 `CheckBox` 点击时不会自己翻转。** 它是一个自定义
+  `FocusScope`，`checked` 只是普通属性，`onClicked` 只负责发 `clicked()` 信号。
+  必须显式写 `onClicked: checked = !checked`，否则界面上看得到却点不动。
+  （`ComboBox` / `SpinBox` 来自 `QtQuick.Controls`，没这个问题。）
+- **tick 基准是 960/四分音符、3840/全音符**，不是历史上常用的 1440/5760。
+  实测十六分=240、八分=480、四分=960、二分=1920。
+  自己 `fraction(ticks, 5760)` 会算出错两倍的时值，优先用 `fractionFromTicks()`。
+- **`Note.spannerForward` / `spannerBack` 对 Slur 恒返回空。** 属性自 4.6 起就有，
+  但在 4.7.5 上只对 glissando 一类有效，延音线得从 `curScore.spanners` 枚举。
+- **`spannerTicks`（Pid::SPANNER_TICKS）是"跨度"不是结束位置。**
+  实测一条 slur 给 `spannerTick=44160, spannerTicks=960`，
+  结束点必须自己 `start + ticks` 加出来。
 
 ### 手动联调的推荐流程
 
@@ -287,8 +302,10 @@ Plugins 菜单的弹出层是独立 HWND，屏幕抓取工具截不到，盲按�
 1. Home → Plugins → 点插件卡片 → **Edit shortcut**（会直接跳到 偏好设置 → Shortcuts 并筛好）。
 2. 选中那行 `Run plugin …` → Define… → 按下组合键（本项目用 `Ctrl+Shift+L`）→ Save → OK。
    快捷键写进 `%LOCALAPPDATA%\MuseScore\MuseScore4\shortcuts.xml`，重启后仍然有效。
-3. 之后每轮改完 `.qml`，用 Home → Plugins → **Reload plugins** 重载，
-   回到谱面按一下快捷键即可触发；改完插件卡片上的版本号会跟着变。
+3. 之后每轮改完 `.qml`，**必须完全退出 MuseScore 再重开**。
+   Home → Plugins → **Reload plugins** 只会重新扫描插件列表（卡片上的版本号会变），
+   **不会重新编译 QML**，旧脚本仍在内存里，改的代码看不到。
+   4.7.5 实测：Reload 后探针输出保持旧值，重启后才更新。
 
 联调时建议先复制一份乐谱再测（`cp 原谱.mscz test/副本.mscz`），
 并且**不要按 Ctrl+S**——标题栏带 `*` 表示尚未保存，一次 Ctrl+Z 就能整体撤销插件写入的全部歌词。
@@ -304,8 +321,9 @@ Plugins 菜单的弹出层是独立 HWND，屏幕抓取工具截不到，盲按�
 | 剪贴板自动读取 | 打开对话框即读入 291 字符歌词，中文无乱码 |
 | 语言自动识别 | 纯中文文本判为"中文/一字一音" |
 | 分词数量 | 报告 215 个音节单元，与独立脚本统计的 CJK 字符数完全一致 |
-| 声部遍历 | 识别出 253 个音符，其中 25 个为连音/延音后续音，可填位置 228 |
-| 数量不匹配提示 | 正确警告"还有 13 个音符没有歌词"（228 − 215 = 13） |
+| 声部遍历 | 识别出 253 个音符；连音线后续音 25 个，开启延音线后共 37 个，可填位置 216 |
+| 数量不匹配提示 | 正确警告"还有 1 个音符没有歌词"（216 − 215 = 1） |
+| 开关可点击 | 5 个复选框取消勾选后统计随之变化（延音线关掉时后续音回到 25 个） |
 | 写入 | 215 个音节全部落位，顺序与原文一致，休止符不占音节 |
 | 撤销 | 一次 Ctrl+Z 可整体回退 |
 
@@ -319,7 +337,7 @@ Plugins 菜单的弹出层是独立 HWND，屏幕抓取工具截不到，盲按�
 - 英文不处理省音号（elision，如 `l'amor` 的连音线），需要时请手动加。
 - CJK 扩展 B 及以外的生僻字（Unicode 平面 2 以上，如 𠀀）按普通字符跳过。
 - 休止符上不写歌词（MuseScore 里歌词挂在休止符上属于异常状态）。
-- 延音线识别需 MuseScore 4.6+。
+- 延音线只从谱面级 `curScore.spanners` 读取；4.x 早期版本未实测，读不到时会退回只认连音线并提示。
 
 ---
 

@@ -51,9 +51,11 @@ MuseScore {
     property string statusText: qsTr("把歌词复制到剪贴板后打开本插件，或在此粘贴。")
     property bool cmdOpen: false
 
-    // MuseScore 内部 1 个四分音符 = 1440 ticks，1 个全音符 = 5760 ticks。
-    // fraction(n, d) 的分母以"全音符"为单位，所以由 ticks 构造 Fraction 要用 5760。
-    readonly property int ticksPerWholeNote: 5760
+    // Fraction.ticks 的基准：4.7.5 实测十六分=240、八分=480、四分=960、
+    // 二分=1920，即 960 ticks/四分音符、3840 ticks/全音符。
+    // fraction(n, d) 的分母以"全音符"为单位，所以由 ticks 反推 Fraction 要用这个基数。
+    // 仅作 fractionFromTicks 不可用时的兜底。
+    readonly property int ticksPerWholeNote: 3840
     // paste() 无法直接判断剪贴板内容，先写入哨兵再粘贴，未发生变化即说明剪贴板为空。
     readonly property string clipboardSentinel: "__LYRICS_FILLER_EMPTY__"
 
@@ -406,28 +408,35 @@ MuseScore {
                 Layout.fillWidth: true
                 spacing: 12
 
+                // Muse.UiComponents 的 CheckBox 是自定义 FocusScope，
+                // checked 只是普通属性、点击时不会自己翻转，
+                // 必须显式写 onClicked 才能被用户改动。
                 CheckBox {
                     id: useSelectionCheck
                     text: qsTr("只填选区")
                     checked: true
+                    onClicked: checked = !checked
                 }
 
                 CheckBox {
                     id: skipTiesCheck
                     text: qsTr("连音线只填首音")
                     checked: true
+                    onClicked: checked = !checked
                 }
 
                 CheckBox {
                     id: slurMelismaCheck
                     text: qsTr("延音线只填首音")
                     checked: true
+                    onClicked: checked = !checked
                 }
 
                 CheckBox {
                     id: extenderCheck
                     text: qsTr("为连音段画延长线")
                     checked: false
+                    onClicked: checked = !checked
                 }
 
                 Item { Layout.fillWidth: true }
@@ -461,6 +470,7 @@ MuseScore {
                     id: strictCheck
                     text: qsTr("数量不一致时不应用")
                     checked: false
+                    onClicked: checked = !checked
                 }
 
                 Item { Layout.fillWidth: true }
@@ -621,26 +631,78 @@ MuseScore {
     // 遍历音符并判定连音线 / 延音线
     //------------------------------------------------------------------------
 
-    // 延音线（Slur）通过 Note.spannerForward / spannerBack 检测，这两个属性自
-    // MuseScore 4.6 起提供；在更早的 4.x 版本里会退回"只识别连音线（Tie）"。
-    function spannerHasSlur(note, propertyName) {
-        if (!note) {
+    // 判断一个 spanner 是不是延音线。ScoreElement.name 来自 engraving 的 typeName()，
+    // 返回的是类名 "Slur"（首字母大写），所以这里必须忽略大小写；
+    // type 在不同 apiversion 下可能是整数枚举也可能是字符串，两种都比一下。
+    function isSlurSpanner(sp) {
+        if (!sp) {
             return false;
         }
-        var list = note[propertyName];
-        if (!list || list.length === undefined) {
+        if (String(sp.name || "").toLowerCase() === "slur") {
+            return true;
+        }
+        return typeof Element !== "undefined" && Element.SLUR !== undefined
+                && sp.type === Element.SLUR;
+    }
+
+    // SPANNER_TICK 是 Fraction 型 Pid，QML 侧可能拿到数字、Fraction 包装
+    // 或带 numerator/denominator 的对象，这里全部兼容。
+    function tickValue(v) {
+        if (v === undefined || v === null) {
+            return -1;
+        }
+        if (typeof v === "number") {
+            return v;
+        }
+        if (typeof v.ticks === "number") {
+            return v.ticks;
+        }
+        if (typeof v.numerator === "number" && typeof v.denominator === "number"
+                && v.denominator !== 0) {
+            return v.numerator * root.ticksPerWholeNote / v.denominator;
+        }
+        var n = Number(v);
+        return isNaN(n) ? -1 : n;
+    }
+
+    // Note.spannerForward / spannerBack 在 4.7.5 上对 Slur 恒返回空列表
+    // （源码注释也只提到 glissando、bend），所以延音线要从谱面级的
+    // curScore.spanners 取，再用 spannerTick / spannerTicks 划出 tick 区间。
+    function collectSlurRanges() {
+        var ranges = [];
+        var spanners = curScore.spanners;
+        if (!spanners || spanners.length === undefined) {
             root.slurApiAvailable = false;
-            return false;
+            return ranges;
         }
-        for (var i = 0; i < list.length; i++) {
-            var spanner = list[i];
-            if (!spanner) {
+        for (var i = 0; i < spanners.length; i++) {
+            var sp = spanners[i];
+            if (!sp) {
                 continue;
             }
-            if (spanner.name === "slur") {
-                return true;
+            if (!isSlurSpanner(sp)) {
+                continue;
             }
-            if (Element.SLUR !== undefined && spanner.type === Element.SLUR) {
+            var start = tickValue(sp.spannerTick);
+            // SPANNER_TICKS 是"跨度"而不是结束位置，结束点要自己加出来。
+            var end = start + tickValue(sp.spannerTicks);
+            if (start < 0 || end <= start) {
+                // 退回用起止元素所在 segment 的 tick
+                var seg = segmentOf(sp.startElement);
+                var seg2 = segmentOf(sp.endElement);
+                if (seg) { start = seg.tick; }
+                if (seg2) { end = seg2.tick; }
+            }
+            ranges.push({ start: start, end: end,
+                          track: tickValue(sp.track), track2: tickValue(sp.spannerTrack2) });
+        }
+        return ranges;
+    }
+
+    function isInsideSlur(tick, track, ranges) {
+        for (var i = 0; i < ranges.length; i++) {
+            var r = ranges[i];
+            if (tick > r.start && tick <= r.end && (r.track === track || r.track2 === track)) {
                 return true;
             }
         }
@@ -657,16 +719,17 @@ MuseScore {
         root.slurApiAvailable = true;
         root.graceNoteCount = 0;
         var wantSlurMelisma = slurMelismaEnabled();
+        var trackId = staffIdx * 4 + voice;
 
         var cursor = curScore.newCursor();
-        cursor.track = staffIdx * 4 + voice;
+        cursor.track = trackId;
         if (range.startTick !== null) {
             cursor.rewindToTick(range.startTick);
         } else {
             cursor.rewind(Cursor.SCORE_START);
         }
 
-        var openSlurs = 0;
+        var slurRanges = wantSlurMelisma ? collectSlurRanges() : [];
         var guard = 0;
         while (cursor.segment && guard < 200000) {
             guard += 1;
@@ -686,26 +749,10 @@ MuseScore {
                 } else {
                     var note = (element.notes && element.notes.length > 0) ? element.notes[0] : null;
                     var tiedIn = !!(note && note.tieBack);
-                    var slurOut = wantSlurMelisma ? spannerHasSlur(note, "spannerForward") : false;
-                    var slurIn = wantSlurMelisma ? spannerHasSlur(note, "spannerBack") : false;
+                    // 延音线区间内（不含起始音、含结束音）的音符不另配音节
+                    var slurCont = wantSlurMelisma && isInsideSlur(cursor.tick, trackId, slurRanges);
 
-                    var continuation = false;
-                    if (skipTiesCheck.checked && tiedIn) {
-                        continuation = true;
-                    }
-                    if (wantSlurMelisma) {
-                        // 处于已打开的 slur 内部（含 slur 的结束音）→ 后续音；
-                        // slur 的起始音此时 openSlurs 仍为 0，因此保持锚点身份。
-                        if (openSlurs > 0) {
-                            continuation = true;
-                        }
-                        if (slurOut) {
-                            openSlurs += 1;
-                        }
-                        if (slurIn && openSlurs > 0) {
-                            openSlurs -= 1;
-                        }
-                    }
+                    var continuation = (skipTiesCheck.checked && tiedIn) || slurCont;
 
                     var duration = element.actualDuration ? element.actualDuration : element.duration;
                     slots.push({
@@ -746,6 +793,20 @@ MuseScore {
         return Lyrics.SINGLE;
     }
 
+    // 由 ticks 造 Fraction。优先用 fractionFromTicks，它直接接受 tick 数，
+    // 不受 tick 基准影响；老版本没有这个函数时再按全音符基数换算。
+    function ticksToFraction(ticks) {
+        try {
+            var f = fractionFromTicks(ticks);
+            if (f) {
+                return f;
+            }
+        } catch (e) {
+            // 落到下面的换算路径
+        }
+        return fraction(ticks, root.ticksPerWholeNote);
+    }
+
     function existingLyricForVerse(chord, verse) {
         var lyrics = chord.lyrics;
         if (!lyrics) {
@@ -776,7 +837,7 @@ MuseScore {
             lyric.placement = placementCombo.currentIndex;
         }
         if (extenderCheck.checked && extenderTicks > 0) {
-            lyric.lyricTicks = fraction(extenderTicks, root.ticksPerWholeNote);
+            lyric.lyricTicks = ticksToFraction(extenderTicks);
         }
         chord.add(lyric);
         return true;
@@ -871,7 +932,7 @@ MuseScore {
             }
         }
         if (slurMelismaEnabled() && !root.slurApiAvailable) {
-            lines.push(qsTr("提示：当前 MuseScore 版本读不到延音线（Slur 支持需 4.6+），只有连音线（Tie）被识别。"));
+            lines.push(qsTr("提示：读不到延音线（Slur），只有连音线（Tie）被识别。"));
         }
         setStatus(lines.join("\n"));
     }

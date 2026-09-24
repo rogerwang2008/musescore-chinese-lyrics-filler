@@ -90,7 +90,8 @@ test("入口与关键函数都已定义", () => {
         "buildTokenizer", "readClipboard", "syncFromSelection", "selectionRange",
         "collectSlots", "writeLyric", "analyze", "report", "applyLyrics",
         "setStatus",
-        "refreshUnitCount", "spannerHasSlur", "segmentOf", "syllabicCode",
+        "refreshUnitCount", "isSlurSpanner", "collectSlurRanges", "isInsideSlur",
+        "tickValue", "segmentOf", "syllabicCode",
         "existingLyricForVerse", "languageMode", "slurMelismaEnabled", "currentUnits"
     ]) {
         assert.match(code, new RegExp(`function\\s+${name}\\s*\\(`), `缺少函数 ${name}`);
@@ -128,4 +129,26 @@ test("没有声明与 MuseScore 根类型同名的函数或属性", () => {
     for (const m of code.matchAll(/\b(?:readonly\s+)?property\s+\S+\s+(\w+)/g)) mine.add(m[1]);
     const clashes = [...mine].filter((name) => RESERVED.includes(name));
     assert.deepEqual(clashes, [], `与根类型成员重名: ${clashes.join(", ")}`);
+});
+
+// Muse.UiComponents 的 CheckBox 是 FocusScope，checked 不会随点击自动翻转，
+// 少写一行 onClicked 就是一个"看得到却点不动"的开关 —— 只能靠测试兜住。
+test("每个 CheckBox 都会自己翻转 checked", () => {
+    let found = 0;
+    const missing = [];
+    for (const m of code.matchAll(/\bCheckBox\s*\{/g)) {
+        found += 1;
+        let i = m.index + m[0].indexOf("{");
+        let depth = 0;
+        let body = "";
+        for (; i < code.length; i++) {
+            if (code[i] === "{") depth++;
+            else if (code[i] === "}") { depth--; if (depth === 0) break; }
+            body += code[i];
+        }
+        const id = (body.match(/\bid:\s*(\w+)/) || [])[1] || "(无 id)";
+        if (!/onClicked:\s*checked\s*=\s*!checked/.test(body)) missing.push(id);
+    }
+    assert(found > 0, "一个 CheckBox 都没找到，测试该更新了");
+    assert.deepEqual(missing, [], `这些 CheckBox 缺少 onClicked: checked = !checked: ${missing.join(", ")}`);
 });
