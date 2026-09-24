@@ -5,6 +5,6 @@
   "description": "MuseScore Studio 4.x plugin: fill lyrics from the clipboard, one syllable per note, with CJK/English tokenizing and tie/slur melisma handling.",
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "test": "node --test tests/tokenizer.test.mjs tests/plugin-format.test.mjs tests/qml-references.test.mjs"
+    "test": "node --test \"tests/*.test.mjs\""
   }
 }

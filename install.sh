@@ -32,12 +32,12 @@ else
     DEST="$CANDIDATE"
 fi
 
-mkdir -p "$DEST"
-
 if [ -z "$DEST" ] || [ "$DEST" = "/" ]; then
     echo "目标路径异常，已中止：'$DEST'" >&2
     exit 1
 fi
+
+mkdir -p "$DEST"
 
 # 只覆盖本插件自己的目录，避免留下改名前的旧文件
 if [ -d "$DEST/LyricsFiller" ]; then

@@ -28,7 +28,8 @@ MuseScore Studio 4.x 的自动填词插件：从系统剪贴板读取歌词，�
 | 能力 | 说明 |
 | --- | --- |
 | 剪贴板读取 | 打开插件时自动读取系统剪贴板，也可手动粘贴或点"重新读取剪贴板" |
-| 中文分词 | 默认一个汉字（含假名）对应一个音符，标点与空白自动丢弃 |
+| 中文分词 | 默认一个汉字（含假名）对应一个音符，空白自动丢弃 |
+| 标点跟随 | 标点不占音符，而是自动贴在前一个字上（`霜。`），词首引号则贴到下一个字前（`“你`） |
 | 英文分词 | 空格分词，词内 `-` 视为音节边界，自动设置 MuseScore 的 syllabic 使连字符正确显示 |
 | 方括号合并 | `[测试]` / `[test word]` 内的内容整体作为一个音节单元，只占一个音符 |
 | 一字多音 | 连音线、延音线覆盖的后续音符留空，只在首音填词；可选为整段画延长线 |
@@ -48,7 +49,12 @@ MuseScore Studio 4.x 的自动填词插件：从系统剪贴板读取歌词，�
 
 ## 安装
 
-### 方式一：脚本（推荐）
+### 方式一：下载发布包（最简单）
+
+到仓库的 **Releases** 页下载 `LyricsFiller-vX.Y.Z.zip`，解压后把
+**`LyricsFiller` 整个文件夹**放进 MuseScore 的用户插件目录（见下表），重启 MuseScore。
+
+### 方式二：脚本
 
 Windows 双击 `install.bat`（或在终端执行）；macOS / Linux：
 
@@ -59,21 +65,24 @@ Windows 双击 `install.bat`（或在终端执行）；macOS / Linux：
 脚本会把 `LyricsFiller/` 整个目录复制到默认用户插件目录：
 
 ```
-Windows   C:\Users\<你>\Documents\MuseScore4\Plugins\LyricsFiller
+Windows   <文档>\MuseScore4\Plugins\LyricsFiller
 macOS     ~/Documents/MuseScore4/Plugins/LyricsFiller
 Linux     ~/Documents/MuseScore4/Plugins/LyricsFiller
 ```
 
-如果你的"文档"目录被重定向到了别处，把目标路径作为参数传入：
+Windows 上的"文档"经常被重定向（OneDrive，或者整个搬到别的盘），
+这时 `%USERPROFILE%\Documents` 并不是 MuseScore 真正读取的目录。
+`install.bat` 因此会先查注册表里的 `User Shell Folders\Personal` 拿到真实路径，
+脚本运行时会把 **Target** 打印出来，请以它为准。也可以直接指定目标：
 
 ```bash
-./install.sh "D:/Music/MuseScore4/Plugins"
+./install.sh "D:/Music/MuseScore4/Plugins"      # macOS / Linux
+install.bat "D:\Music\MuseScore4\Plugins"       # Windows
 ```
 
-### 方式二：手动复制
-
-把仓库里的 **`LyricsFiller` 文件夹整体**（不是单个 .qml 文件）复制到上面的插件目录，
-然后重启 MuseScore Studio。
+> `install.bat` 刻意写成纯 ASCII + 英文输出：cmd.exe 按字节偏移读脚本，
+> 文件里出现多字节字符会让它把后续行切错位置，`echo` / `REM` 的尾巴会被当成命令执行。
+> 中文说明放在这里，`install.sh` 则保留中文输出。
 
 ### 确认安装成功
 
@@ -108,7 +117,7 @@ Linux     ~/Documents/MuseScore4/Plugins/LyricsFiller
 | 输入 | 结果（每个 → 一个音符） |
 | --- | --- |
 | `床前明月光` | 床 / 前 / 明 / 月 / 光 |
-| `床前明月光，` | 逗号不占音符，仍是 5 个单元 |
+| `床前明月光，` | 床 / 前 / 明 / 月 / `光，`（逗号跟着"光"走，仍 5 个单元） |
 | `床前 明月\n光` | 空白与换行都不占音符 |
 | `[测试]你好` | `测试`（1 个音符）/ 你 / 好 |
 | `唱la la吧` | 唱 / `la` / `la` / 吧（夹带的英文按词聚合） |
@@ -125,11 +134,32 @@ Linux     ~/Documents/MuseScore4/Plugins/LyricsFiller
 | `in-com-pre-hen-si-ble` | 6 个音符 |
 | `Si - lence` / `re- action` / `ev-\nery` | 连字符两侧的空格和换行不影响拆分 |
 | `sing [test word] now` | sing / `test word`（1 个音符）/ now |
-| `Singin' in the "rain"` | 撇号保留，首尾多余标点被去掉 |
+| `Singin' in the "rain"` | Singin' / in / the / `"rain"`（撇号与引号都保留） |
+| `Hello — world` | `Hello—` / world（破折号贴到前一个词，不占音符） |
 
 关于连字符的关键点：**写入时会去掉 `-`**，改用 MuseScore 的 `syllabic`
 （begin / middle / end / single）属性。这样排版时连字符由软件自己画，
 位置、字体、换行都跟原生歌词一致；手动把 `-` 留在文本里会出现双连字符。
+
+### 标点符号
+
+标点**不占音符**，但不会被丢掉，而是自动贴到相邻的歌词上：
+
+| 情况 | 归属 | 例子 |
+| --- | --- | --- |
+| 字后面的标点 | 贴回前一个字 | `霜。` → 一个音符显示 `霜。` |
+| 连续多个标点 | 全部并到前一个字 | `了！??` → 一个音符 |
+| 词前的引号/括号 | 贴到下一个字前面 | `“你好”` → `“你` + `好”` |
+| 方括号单元后面 | 贴到该单元末尾 | `[la la]吧！` → `la la` + `吧！` |
+
+因为标点不产生新单元，**加不加标点，音节数完全一致**，不会影响与音符的对位
+（有测试专门钉住这条不变量）。
+
+唯一的例外是连字符 `-`：它是英文的音节边界标记，也常被当作"延长"的手写符号，
+贴进歌词会被误当成文字，所以永远丢弃。想要延长线请用"为连音段画延长线"选项。
+
+另一个细节：`go-!` 这种"连字符后紧跟标点"的写法，逗号/感叹号意味着词已经结束，
+所以该音节的 `syllabic` 会从 begin 降级为 single，MuseScore 不会再往后画连字符。
 
 ### 语言自动识别
 
@@ -241,24 +271,57 @@ re-action [test word] go
 ## 开发与测试
 
 ```bash
-node --test "tests/tokenizer.test.mjs" "tests/plugin-format.test.mjs" "tests/qml-references.test.mjs"
+npm test
+# 等价于：node --test "tests/*.test.mjs"
 ```
 
-（如果你的 Node 版本支持目录参数，`node --test tests/` 也可以。）
+> 引号不能省。glob 交给 Node 自己展开，Windows 的 cmd 和 CI 的 bash 行为才一致；
+> 写成 `node --test tests/` 在 Node 24 上会被当成模块路径而报 MODULE_NOT_FOUND。
 
-测试不依赖 MuseScore，分三块：
+测试不依赖 MuseScore，分四块：
 
 - `tests/tokenizer.test.mjs` — 从 `lyricsfiller.qml` 里
   `TOKENIZER-BEGIN/END` 之间**原样截取**分词代码来跑，保证测的就是插件真正会执行的代码。
 - `tests/plugin-format.test.mjs` — 复刻 MuseScore 的插件头部文本解析器，
   校验 7 个必需元数据能否被识别、缩略图是否存在、括号是否配平。
-- `tests/qml-references.test.mjs` — 检查控件 id 唯一、被引用，成员访问的基名都有定义。
+- `tests/qml-references.test.mjs` — 检查控件 id 唯一、被引用，成员访问的基名都有定义，
+  以及每个 `CheckBox` 都带 `onClicked: checked = !checked`。
+- `tests/install-script.test.mjs` — 钉住 `install.bat` 必须是纯 ASCII + CRLF + 无 BOM，
+  以及 `install.sh` 的路径校验要在 `mkdir` 之前。
 
 分词/排布逻辑全部放在 `buildTokenizer()` 这一个纯函数里，不引用任何 MuseScore 对象；
 需要 Qt 环境的部分（遍历音符、读写歌词元素）都在它外面。想扩展规则只改这个函数，
-然后 `node --test tests/` 就能验证。
+然后 `npm test` 就能验证。
+
+### 发版（自动生成 GitHub Release）
+
+发布是**打标签驱动**的，不需要本地装 `gh`，也不依赖任何第三方 Action
+（用的是 runner 自带的 `gh` CLI）：
+
+```bash
+npm test                                   # 先确认全绿
+git commit -am "..." && git push
+git tag v1.0.1 && git push origin v1.0.1   # 这一推就会触发发布
+```
+
+`.github/workflows/release.yml` 收到 `v*` 标签后依次：跑测试 → 校验
+标签版本号与 `package.json` / 插件 `version` 一致 → 把 `LyricsFiller/` 压成
+`LyricsFiller-v1.0.1.zip` → 创建 Release 并挂上 zip 和单个 `lyricsfiller.qml`。
+
+想改发布说明或补附件，可以在 Actions 页手动运行 **release** workflow
+（workflow_dispatch），填同一个 tag 即可，脚本会走"已存在则更新"分支，
+不会重复创建 Release。
+
+发版前必须知道的三件事：
+
+- 版本号有三处：git 标签 `v1.0.1`、`package.json` 的 `version`、
+  `lyricsfiller.qml` 头部的 `version`。三者必须一致，测试会拦住不一致的情况。
+- 标签一旦推上去就是公开状态，删标签不会自动删 Release，需要去 Releases 页一起删。
+- 需要仓库 Settings → Actions → General 里 "Workflow permissions" 至少为
+  **Read and write**（默认值通常已是），否则 `gh release create` 会 403。
 
 ### 在 4.7.5 上开发时必须知道的几件事
+
 
 这些是实测踩出来的，源码里看不出来：
 
@@ -335,7 +398,11 @@ Plugins 菜单的弹出层是独立 HWND，屏幕抓取工具截不到，盲按�
 - **换行不被当作段落分隔**，多段歌词请逐段填（配合"第几段歌词"）。
 - 方括号 `[...]` 不支持嵌套，也不建议与相邻文字连写（`la[xx]` 会被当一个词）。
 - 英文不处理省音号（elision，如 `l'amor` 的连音线），需要时请手动加。
-- CJK 扩展 B 及以外的生僻字（Unicode 平面 2 以上，如 𠀀）按普通字符跳过。
+- CJK 扩展 B 及以外的生僻字（Unicode 平面 2 以上，如 𠀀）不在汉字范围内，
+  会被当成标点贴到前一个字上（`月𠀀` 挤进同一个音符）。需要它独占一个音符时，
+  用方括号包起来：`[𠀀]`。
+- 标点只是"贴"在歌词文本上，不参与发音或排版判断；如果你想让某个标点单独占一拍，
+  那本来就该是一个音符，请用方括号把它包成一个单元。
 - 休止符上不写歌词（MuseScore 里歌词挂在休止符上属于异常状态）。
 - 延音线只从谱面级 `curScore.spanners` 读取；4.x 早期版本未实测，读不到时会退回只认连音线并提示。
 

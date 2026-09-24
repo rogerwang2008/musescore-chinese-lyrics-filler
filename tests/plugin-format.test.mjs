@@ -135,3 +135,15 @@ for (const file of files) {
         assert.ok(stat, `缺少缩略图 ${props.thumbnailName}`);
     });
 }
+
+// 发版流程建立在"git 标签 vX.Y.Z == 插件 version == package.json version"之上，
+// 三者不一致会让 Release 标题、下载文件名和插件里显示的版本号互相对不上。
+test("version 三处一致且是 x.y.z 形式", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    assert.match(pkg.version, /^\d+\.\d+\.\d+$/, "package.json 的 version 必须是 x.y.z");
+    for (const file of files) {
+        const props = parseManifestHeader(readFileSync(file, "utf8"));
+        assert.equal(props.version, pkg.version,
+            `${file.slice(ROOT.length + 1)} 的 version 与 package.json 不一致`);
+    }
+});

@@ -1,0 +1,95 @@
+name: release
+
+# 打 tag（v1.0.0 这种形式）就自动发一个 GitHub Release：
+# 跑测试 -> 打包 zip -> 创建 Release 并挂上附件。
+# 用 runner 自带的 gh CLI，不引入第三方 action。
+on:
+  push:
+    tags:
+      - "v*"
+  # 附件传失败或者想改发布说明时可以手动重跑
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要重新发布的标签，例如 v1.0.0
+        required: true
+        type: string
+
+# 只有这个 job 需要写 Releases 的权限，收紧到 contents: write
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 测试里包含"标签版本 == 插件 version == package.json version"这一类断言，
+      # 所以在打包之前先跑一遍；失败就不要发出一个装不上的包。
+      - name: Run tests
+        run: |
+          npm test
+          if [ "${{ github.event_name }}" = "push" ]; then
+            [ "$TAG" = "v$(node -p "require('./package.json').version")" ] \
+              || { echo "标签 $TAG 与 package.json 的版本号不一致"; exit 1; }
+          fi
+
+      - name: Package plugin folder
+        run: |
+          mkdir -p dist
+          cp -R LyricsFiller "dist/LyricsFiller"
+          (cd dist && zip -r -q "LyricsFiller-$TAG.zip" LyricsFiller)
+          ls -l dist
+          unzip -l "dist/LyricsFiller-$TAG.zip"
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## 安装（解压即可）
+
+          1. 下载 `LyricsFiller-vX.Y.Z.zip`，解压。
+          2. 把解压出来的 **`LyricsFiller` 整个文件夹**放进 MuseScore 的用户插件目录：
+             - Windows：`文档\MuseScore4\Plugins`
+             - macOS / Linux：`~/Documents/MuseScore4/Plugins`
+          3. **完全退出 MuseScore 再重开。** 插件列表里的 "Reload plugins" 只会重扫列表，
+             不会重新编译 QML，代码改动看不到。
+          4. 菜单 **插件 → 歌词 → Lyrics Filler 自动填词**。
+
+          如果你的 Windows 把"文档"重定向到了别的盘（OneDrive 或 D 盘），
+          请以 编辑 → 偏好设置 → 扩展 → 我的插件 里显示的路径为准。
+
+          也可以只用附件里的单个 `lyricsfiller.qml`，直接丢进 `Plugins` 目录同样能被识别。
+
+          ## 用法
+
+          把歌词复制到剪贴板 → 打开插件（会自动读入）→ 统计确认音节数与音符数 → 应用。
+          一次 Ctrl+Z 可以撤销整批写入。分词规则、连音线/延音线处理与选项说明见 README。
+          EOF
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARGS=(
+            "$TAG"
+            "dist/LyricsFiller-$TAG.zip"
+            LyricsFiller/lyricsfiller.qml
+            --title "Lyrics Filler $TAG"
+            --notes-file release-notes.md
+            --latest
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # 重跑 workflow 时不重复创建，改为覆盖附件并刷新说明
+            gh release edit "$TAG" --notes-file release-notes.md --latest
+            gh release upload "$TAG" "dist/LyricsFiller-$TAG.zip" LyricsFiller/lyricsfiller.qml --clobber
+          else
+            gh release create "${ARGS[@]}"
+          fi
+          gh release view "$TAG"

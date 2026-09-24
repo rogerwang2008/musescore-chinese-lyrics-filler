@@ -29,9 +29,9 @@ const shape = (units) => units.map((u) => `${u.text}:${u.syllabic}`).join(" ");
 
 // ---------------------------------------------------------------- 中文
 
-test("中文：一字一音，标点与空白丢弃", () => {
+test("中文：一字一音，标点贴在前一个字上", () => {
     const r = tok.tokenizeChinese("床前明月光，\n疑是地上霜。");
-    assert.equal(shape(r.units), "床:single 前:single 明:single 月:single 光:single 疑:single 是:single 地:single 上:single 霜:single");
+    assert.equal(shape(r.units), "床:single 前:single 明:single 月:single 光，:single 疑:single 是:single 地:single 上:single 霜。:single");
 });
 
 test("中文：[方括号] 内的字合并成一个音节单元", () => {
@@ -108,19 +108,56 @@ test("英文：[test word] 合并为一个单元", () => {
     assert.equal(shape(r.units), "sing:single test word:single now:single");
 });
 
-test("英文：撇号与标点不拆词", () => {
+test("英文：撇号与标点不拆词，标点贴在词上", () => {
     const r = tok.tokenizeEnglish("Singin' in the \"rain\"");
-    assert.equal(shape(r.units), "Singin':single in:single the:single rain:single");
+    assert.equal(shape(r.units), "Singin':single in:single the:single \"rain\":single");
 });
 
-test("英文：单独的破折号不产生音节", () => {
+test("英文：单独的破折号不产生音节，但贴到前一个词", () => {
     const r = tok.tokenizeEnglish("Hello — world");
-    assert.equal(shape(r.units), "Hello:single world:single");
+    assert.equal(shape(r.units), "Hello—:single world:single");
 });
 
 test("英文：重音字母视作词内字符", () => {
     const r = tok.tokenizeEnglish("l'été café");
     assert.equal(shape(r.units), "l'été:single café:single");
+});
+
+// ------------------------------------------------------------ 标点跟随
+
+test("标点：词首标点贴到下一个字，不额外占音符", () => {
+    const r = tok.tokenizeChinese("“你好”");
+    assert.equal(shape(r.units), "“你:single 好”:single");
+});
+
+test("标点：连续多个标点全部并到前一个字", () => {
+    const r = tok.tokenizeChinese("去了！?? 真的");
+    assert.equal(shape(r.units), "去:single 了！??:single 真:single 的:single");
+});
+
+test("标点：方括号单元后面也能接标点", () => {
+    const r = tok.tokenizeChinese("唱[la la]吧！");
+    assert.equal(shape(r.units), "唱:single la la:single 吧！:single");
+});
+
+test("标点：连字符不贴进歌词，它是音节边界", () => {
+    assert.equal(shape(tok.tokenize("re-action", "zh").units), "re:single action:single");
+    assert.equal(shape(tok.tokenize("re-action", "en").units), "re:begin action:end");
+});
+
+test("标点：贴在词尾后就不再往后补连字符", () => {
+    // "a-!" 里 a 本来是 begin（MuseScore 会画 "a-"），但感叹号说明词已经结束
+    const r = tok.tokenizeEnglish("a-! b");
+    assert.equal(shape(r.units), "a!:single b:single");
+});
+
+test("标点：加不加标点，音节数完全一致（不影响与音符对位）", () => {
+    const clean = tok.tokenizeChinese("床前明月光 疑是地上霜");
+    const punct = tok.tokenizeChinese("床前明月光，\n疑是地上霜。");
+    assert.equal(punct.units.length, clean.units.length);
+    const cleanEn = tok.tokenizeEnglish("Singin in the rain");
+    const punctEn = tok.tokenizeEnglish("Singin' in the \"rain\"!");
+    assert.equal(punctEn.units.length, cleanEn.units.length);
 });
 
 // ---------------------------------------------------------- 语言自动识别

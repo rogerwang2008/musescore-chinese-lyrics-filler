@@ -74,6 +74,15 @@ MuseScore {
         var LETTER_RE = /[A-Za-z0-9\u00C0-\u024F\u1E00-\u1EFF]/;
         var HEAD_TRIM_RE = /^[^A-Za-z0-9\u00C0-\u024F\u1E00-\u1EFF]+/;
         var TAIL_TRIM_RE = /[^A-Za-z0-9\u00C0-\u024F\u1E00-\u1EFF']+$/;
+        // 词首/词尾的标点串。与上面两个的区别是连字符也不参与：
+        // "re-" 的尾连字符是音节边界，不是标点。
+        var BLOCK_HEAD_RE = /^[^A-Za-z0-9\u00C0-\u024F\u1E00-\u1EFF'\u2019-]+/;
+        var BLOCK_TAIL_RE = /[^A-Za-z0-9\u00C0-\u024F\u1E00-\u1EFF'\u2019-]+$/;
+        var SPACE_RE = /\s/;
+
+        // 英文词内的撇号（直角 ' 与弯引号 ’），只在两侧都是字母时算词内字符，
+        // 这样 don't / don’t 不会被拆成两个音节。
+        var APOSTROPHE = { "'": true, "\u2019": true };
 
         function isCjkChar(ch) {
             var c = ch.charCodeAt(0);
@@ -135,13 +144,48 @@ MuseScore {
             return parseInt(block.slice(1, block.length - 1), 10);
         }
 
+        // 音节收集器。标点不占音符，但也不能丢：
+        //   after(str)  —— 跟在音节后面的标点，贴到前一个音节末尾（"栓，"）；
+        //                  前面还没有音节时退化成 before(str)。
+        //   before(str) —— 词首标点（引号等），攒起来贴到下一个音节前面（"“我"）。
+        // 无论怎么贴，音节总数都不变，所以不会影响与音符的对位。
+        function unitSink() {
+            var units = [];
+            var pending = "";
+            return {
+                units: units,
+                pending: function () { return pending; },
+                before: function (str) { pending += str; },
+                after: function (str) {
+                    if (units.length === 0) {
+                        pending += str;
+                        return;
+                    }
+                    var last = units[units.length - 1];
+                    last.text += str;
+                    // begin / middle 会让 MuseScore 往后补画连字符，
+                    // 既然词已经被标点截断，就不能再往下了。
+                    if (last.syllabic === "begin") last.syllabic = "single";
+                    else if (last.syllabic === "middle") last.syllabic = "end";
+                },
+                push: function (text, syllabic, bracketed) {
+                    units.push({
+                        text: pending + text,
+                        syllabic: syllabic || "single",
+                        bracketed: !!bracketed
+                    });
+                    pending = "";
+                }
+            };
+        }
+
         // 中文：一个汉字 = 一个音节单元；括号内容整体 = 一个单元；
-        // 夹带的拉丁字母/数字按词聚合；空白与标点（含中文标点）丢弃。
+        // 夹带的拉丁字母/数字按词聚合；空白丢弃，标点贴到前一个字上。
         function tokenizeChinese(text) {
             var warnings = [];
             var protectedText = protectGroups(text, warnings);
             var s = protectedText.text;
-            var units = [];
+            var sink = unitSink();
 
             for (var i = 0; i < s.length; i++) {
                 var ch = s.charAt(i);
@@ -150,7 +194,7 @@ MuseScore {
                     var index = groupIndex(s.slice(i, close + 1));
                     var content = protectedText.groups[index];
                     if (content.length > 0) {
-                        units.push({ text: content, syllabic: "single", bracketed: true });
+                        sink.push(content, "single", true);
                     } else {
                         warnings.push("第 " + (index + 1) + " 个方括号是空的，已忽略。");
                     }
@@ -158,22 +202,40 @@ MuseScore {
                     continue;
                 }
                 if (isCjkChar(ch)) {
-                    units.push({ text: ch, syllabic: "single", bracketed: false });
+                    sink.push(ch, "single", false);
                     continue;
                 }
                 if (LETTER_RE.test(ch)) {
                     var word = "";
-                    while (i < s.length && LETTER_RE.test(s.charAt(i))) {
-                        word += s.charAt(i);
-                        i += 1;
+                    while (i < s.length) {
+                        var c = s.charAt(i);
+                        if (LETTER_RE.test(c)) {
+                            word += c;
+                            i += 1;
+                            continue;
+                        }
+                        // 撇号只在两侧都是字母时留在词内（don't / don’t）
+                        if (APOSTROPHE[c] && LETTER_RE.test(s.charAt(i + 1))) {
+                            word += c;
+                            i += 1;
+                            continue;
+                        }
+                        break;
                     }
                     i -= 1;
-                    units.push({ text: word, syllabic: "single", bracketed: false });
+                    sink.push(word, "single", false);
                     continue;
                 }
-                // 其余字符（空白、中英文标点）不占音符
+                // 标点贴到前一个字上。连字符例外：它是英文的音节边界标记，
+                // 也是"延长"的手写习惯，贴进歌词反而会被当成文字。
+                if (!SPACE_RE.test(ch) && ch !== "-") {
+                    sink.after(ch);
+                }
             }
-            return { units: units, warnings: warnings };
+            if (sink.pending().length > 0) {
+                warnings.push("开头有一段标点，前面没有字可跟，已忽略。");
+            }
+            return { units: sink.units, warnings: warnings };
         }
 
         // 英文：空格分词，词内 "-" 是音节边界。
@@ -184,21 +246,26 @@ MuseScore {
             var protectedText = protectGroups(text, warnings);
             var s = protectedText.text.replace(/\r\n?/g, "\n").replace(/\s*-\s*/g, "-");
             var blocks = s.match(/\S+/g) || [];
-            var units = [];
+            var sink = unitSink();
 
             for (var b = 0; b < blocks.length; b++) {
                 var block = blocks[b];
                 if (isGroupBlock(block)) {
                     var content = protectedText.groups[groupIndex(block)];
                     if (content.length > 0) {
-                        units.push({ text: content, syllabic: "single", bracketed: true });
+                        sink.push(content, "single", true);
                     } else {
                         warnings.push("有一个方括号是空的，已忽略。");
                     }
                     continue;
                 }
 
-                var raw = block.split("-");
+                var raw0 = block.replace(BLOCK_HEAD_RE, "");
+                var lead = block.slice(0, block.length - raw0.length);
+                var body = raw0.replace(BLOCK_TAIL_RE, "");
+                var trail = raw0.slice(body.length);
+
+                var raw = body.split("-");
                 var startsWithHyphen = (raw[0] === "");
                 var endsWithHyphen = (raw[raw.length - 1] === "");
                 var pieces = [];
@@ -209,20 +276,29 @@ MuseScore {
                     }
                 }
                 if (pieces.length === 0) {
-                    // 纯标点块（例如单独的破折号）不产生音节
+                    // 整块都是标点（例如单独的破折号），跟回前一个音节；
+                    // 单独的 "-" 只是音节边界，什么都不跟，直接忽略。
+                    if ((lead + trail).length > 0) {
+                        sink.after(lead + trail);
+                    }
                     continue;
+                }
+                if (lead.length > 0) {
+                    sink.before(lead);
                 }
                 for (var p = 0; p < pieces.length; p++) {
                     var wordStart = (p === 0) && !startsWithHyphen;
                     var wordEnd = (p === pieces.length - 1) && !endsWithHyphen;
-                    units.push({
-                        text: pieces[p],
-                        syllabic: syllabicOf(wordStart, wordEnd),
-                        bracketed: false
-                    });
+                    sink.push(pieces[p], syllabicOf(wordStart, wordEnd), false);
+                }
+                if (trail.length > 0) {
+                    sink.after(trail);
                 }
             }
-            return { units: units, warnings: warnings };
+            if (sink.pending().length > 0) {
+                warnings.push("开头有一段标点，前面没有字可跟，已忽略。");
+            }
+            return { units: sink.units, warnings: warnings };
         }
 
         // 自动判断语言：统计中日韩字符数与拉丁字母数，谁多用谁的规则。
