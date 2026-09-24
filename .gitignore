@@ -23,3 +23,8 @@ session/
 # 临时导出与日志
 *.log
 backup/
+
+# 本地测试素材：歌词文本与乐谱副本不要入库（著作权与隐私）
+test/
+*.txt
+!requirements.txt

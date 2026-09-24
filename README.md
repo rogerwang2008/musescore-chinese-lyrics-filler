@@ -257,6 +257,58 @@ node --test "tests/tokenizer.test.mjs" "tests/plugin-format.test.mjs" "tests/qml
 需要 Qt 环境的部分（遍历音符、读写歌词元素）都在它外面。想扩展规则只改这个函数，
 然后 `node --test tests/` 就能验证。
 
+### 在 4.7.5 上开发时必须知道的几件事
+
+这些是实测踩出来的，源码里看不出来：
+
+- **`onRun:` 不能用在 dialog 插件上。** 写 `onRun: { … }` 会让 QML 直接报
+  `Cannot assign to non-existent property "onRun"` 并中止加载，插件窗口根本不出现。
+  本插件改用根对象的 `Component.onCompleted`，对话框打开时同样触发。
+- **不要给函数/属性起根类型的保留名。** 根类型自带 `run` 信号，
+  自己再写 `function run()` 会报 `Duplicate method name`，并且连带让 `onRun` 无法生成。
+  同类保留名还有 `quit` `cmd` `newElement` `fraction` `division` `curScore` 等，
+  完整清单见 `tests/qml-references.test.mjs` 里的 `RESERVED`。
+- **加载失败时 MuseScore 只会弹一个全空白窗口。** 它想显示的
+  `qrc:/qml/Muse/Extensions/ExtensionErrorMessage.qml` 在 4.7.5 安装包里缺失，
+  日志里对应一条 `No such file or directory`。所以"窗口是空的"就等于"加载失败"，
+  真正的原因要去日志里看。
+- **不要在异常对话框上按 Escape。** 实测会触发 MuseScore 自身的断言
+  （`InteractiveProvider::onClose ASSERT FAILED`，interactiveprovider.cpp:828）并让整个程序退出。
+- **看日志是唯一可靠的诊断手段**：
+  `%LOCALAPPDATA%\MuseScore\MuseScore4\logs\MuseScore_*.log`，
+  搜 `ExtensionBuilder::load`（加载失败）、`Qt |`（QML 运行时报错）、
+  `ActionsDispatcher::doDispatch`（动作是否被触发）。
+
+### 手动联调的推荐流程
+
+Plugins 菜单的弹出层是独立 HWND，屏幕抓取工具截不到，盲按键盘又容易误触发别的命令。
+更可靠的做法是给插件绑一个快捷键：
+
+1. Home → Plugins → 点插件卡片 → **Edit shortcut**（会直接跳到 偏好设置 → Shortcuts 并筛好）。
+2. 选中那行 `Run plugin …` → Define… → 按下组合键（本项目用 `Ctrl+Shift+L`）→ Save → OK。
+   快捷键写进 `%LOCALAPPDATA%\MuseScore\MuseScore4\shortcuts.xml`，重启后仍然有效。
+3. 之后每轮改完 `.qml`，用 Home → Plugins → **Reload plugins** 重载，
+   回到谱面按一下快捷键即可触发；改完插件卡片上的版本号会跟着变。
+
+联调时建议先复制一份乐谱再测（`cp 原谱.mscz test/副本.mscz`），
+并且**不要按 Ctrl+S**——标题栏带 `*` 表示尚未保存，一次 Ctrl+Z 就能整体撤销插件写入的全部歌词。
+
+---
+
+## 实测记录
+
+在 MuseScore Studio 4.7.5 + 一首真实歌曲（单谱表、4/4、253 个音符、含连音线与延音线）上验证通过：
+
+| 项目 | 结果 |
+| --- | --- |
+| 剪贴板自动读取 | 打开对话框即读入 291 字符歌词，中文无乱码 |
+| 语言自动识别 | 纯中文文本判为"中文/一字一音" |
+| 分词数量 | 报告 215 个音节单元，与独立脚本统计的 CJK 字符数完全一致 |
+| 声部遍历 | 识别出 253 个音符，其中 25 个为连音/延音后续音，可填位置 228 |
+| 数量不匹配提示 | 正确警告"还有 13 个音符没有歌词"（228 − 215 = 13） |
+| 写入 | 215 个音节全部落位，顺序与原文一致，休止符不占音节 |
+| 撤销 | 一次 Ctrl+Z 可整体回退 |
+
 ---
 
 ## 已知限制

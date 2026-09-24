@@ -501,13 +501,16 @@ MuseScore {
                 FlatButton {
                     text: qsTr("应用")
                     toolTipTitle: qsTr("把音节写入乐谱，可用 Ctrl+Z 撤销")
-                    onClicked: root.run()
+                    onClicked: root.applyLyrics()
                 }
             }
         }
     }
 
-    onRun: {
+    // MuseScore 4.7.5 里给 dialog 插件写 onRun 处理器会直接报
+    // "Cannot assign to non-existent property \"onRun\""，整个插件加载失败，
+    // 所以初始化放在组件完成回调里做（对话框打开时即触发）。
+    Component.onCompleted: {
         syncFromSelection();
         readClipboard();
         refreshUnitCount();
@@ -873,7 +876,9 @@ MuseScore {
         setStatus(lines.join("\n"));
     }
 
-    function run() {
+    // 名字不能叫 run()：MuseScore 根类型自带 run 信号（onRun 就是它的处理器），
+    // 自己再声明一个 run 方法会让 onRun 无法生成，整个插件加载失败。
+    function applyLyrics() {
         var plan = analyze();
         if (!plan.ok) {
             setStatus(plan.message);
