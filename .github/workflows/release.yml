@@ -52,44 +52,42 @@ jobs:
       - name: Write release notes
         run: |
           cat > release-notes.md <<'EOF'
-          把歌词复制到剪贴板，插件按语言规则切成音节，顺序填进你选定声部的音符下方。
-          中文一字一音，英文按连字符分音节，连音线上的多个音符只在第一个音填词。
+          从剪贴板读取歌词，按语言规则切分为音节单元，顺序填入选定声部的音符下方。
+          中文一字一音，英文按连字符分音节，连音线与延音线覆盖的音符只在首音填词。
 
-          ## 安装（约 1 分钟）
+          ## 安装
 
           1. 下载 `LyricsFiller-vX.Y.Z.zip`，解压。
-          2. 把解压出来的 **`LyricsFiller` 整个文件夹**放进 MuseScore 的用户插件目录：
+          2. 将 `LyricsFiller` 文件夹放入 MuseScore 用户插件目录：
              - Windows：`文档\MuseScore4\Plugins`
              - macOS / Linux：`~/Documents/MuseScore4/Plugins`
-          3. **完全退出 MuseScore 再重开。**
-             插件列表里的 "Reload plugins" 只重扫列表，不会加载新代码。
+          3. 退出并重新启动 MuseScore。插件列表中的 "Reload plugins" 只重扫列表，
+             不会加载修改后的代码。
 
-          然后菜单里就有 **插件 → 歌词 → Lyrics Filler 自动填词**。
+          之后菜单中出现 **插件 → 歌词 → Lyrics Filler 自动填词**。
 
-          > Windows 上"文档"常被重定向（OneDrive，或整个搬到别的盘）。
-          > 装完找不到插件时，去 编辑 → 偏好设置 → 扩展 看"我的插件"到底是哪个目录，
-          > 以它为准，不要凭 `C:\Users\<你>\Documents` 猜。
-          > 附件里也有单个 `lyricsfiller.qml`，直接丢进 `Plugins` 目录同样能被识别。
+          Windows 的"文档"目录常被重定向。找不到插件时，以
+          编辑 → 偏好设置 → 扩展 中"我的插件"显示的路径为准。
+          附件中的单个 `lyricsfiller.qml` 可直接放入 `Plugins` 目录，同样能被识别。
 
           ## 用法
 
-          1. 复制歌词 → 2. 选中要填词的音符 → 3. 打开插件（歌词会自动出现）
-          → 4. 点 **统计** 确认音节数与音符数 → 5. 点 **应用**。
+          复制歌词 → 选中目标音符 → 打开插件（歌词自动填入）→ **统计** 核对数量 → **应用**。
 
-          结果不满意：**Ctrl+Z** 一次撤销整批写入。多段歌词请逐段填（改"第几段歌词"）。
+          一次 **Ctrl+Z** 撤销整批写入。多段歌词需逐段填写（修改"第几段歌词"序号）。
 
-          ## 这一版改了什么
+          ## 更新内容
 
-          看 [CHANGELOG.md](../main/CHANGELOG.md) —— 只列对用户有影响的变化。
-          完整的分词规则、选项说明与常见问题在 README 里。
+          见 [CHANGELOG.md](../main/CHANGELOG.md)。完整的分词规则、选项说明与
+          常见问题见 README。
 
           ## 隐私
 
-          插件**完全离线**：没有网络请求、没有遥测，不上传歌词或乐谱，
-          也不保留剪贴板内容。整个插件就是一个可读的 `lyricsfiller.qml` 文件。
+          插件离线运行：无网络请求与遥测，不上传歌词或乐谱，不保留剪贴板内容。
+          实现为单个 `lyricsfiller.qml` 文件，可直接审计。
 
-          开发过程使用了 AI 辅助编码，但所有 MuseScore API 行为都在
-          MuseScore Studio 4.7.5 上实测验证并写成了回归测试。
+          开发过程使用 AI 辅助；所有 MuseScore API 行为均在
+          MuseScore Studio 4.7.5 上逐项实测，并写成回归测试。
           EOF
 
       - name: Create or update release
