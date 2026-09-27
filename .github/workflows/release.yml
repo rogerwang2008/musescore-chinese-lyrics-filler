@@ -52,25 +52,44 @@ jobs:
       - name: Write release notes
         run: |
           cat > release-notes.md <<'EOF'
-          ## 安装（解压即可）
+          把歌词复制到剪贴板，插件按语言规则切成音节，顺序填进你选定声部的音符下方。
+          中文一字一音，英文按连字符分音节，连音线上的多个音符只在第一个音填词。
+
+          ## 安装（约 1 分钟）
 
           1. 下载 `LyricsFiller-vX.Y.Z.zip`，解压。
           2. 把解压出来的 **`LyricsFiller` 整个文件夹**放进 MuseScore 的用户插件目录：
              - Windows：`文档\MuseScore4\Plugins`
              - macOS / Linux：`~/Documents/MuseScore4/Plugins`
-          3. **完全退出 MuseScore 再重开。** 插件列表里的 "Reload plugins" 只会重扫列表，
-             不会重新编译 QML，代码改动看不到。
-          4. 菜单 **插件 → 歌词 → Lyrics Filler 自动填词**。
+          3. **完全退出 MuseScore 再重开。**
+             插件列表里的 "Reload plugins" 只重扫列表，不会加载新代码。
 
-          如果你的 Windows 把"文档"重定向到了别的盘（OneDrive 或 D 盘），
-          请以 编辑 → 偏好设置 → 扩展 → 我的插件 里显示的路径为准。
+          然后菜单里就有 **插件 → 歌词 → Lyrics Filler 自动填词**。
 
-          也可以只用附件里的单个 `lyricsfiller.qml`，直接丢进 `Plugins` 目录同样能被识别。
+          > Windows 上"文档"常被重定向（OneDrive，或整个搬到别的盘）。
+          > 装完找不到插件时，去 编辑 → 偏好设置 → 扩展 看"我的插件"到底是哪个目录，
+          > 以它为准，不要凭 `C:\Users\<你>\Documents` 猜。
+          > 附件里也有单个 `lyricsfiller.qml`，直接丢进 `Plugins` 目录同样能被识别。
 
           ## 用法
 
-          把歌词复制到剪贴板 → 打开插件（会自动读入）→ 统计确认音节数与音符数 → 应用。
-          一次 Ctrl+Z 可以撤销整批写入。分词规则、连音线/延音线处理与选项说明见 README。
+          1. 复制歌词 → 2. 选中要填词的音符 → 3. 打开插件（歌词会自动出现）
+          → 4. 点 **统计** 确认音节数与音符数 → 5. 点 **应用**。
+
+          结果不满意：**Ctrl+Z** 一次撤销整批写入。多段歌词请逐段填（改"第几段歌词"）。
+
+          ## 这一版改了什么
+
+          看 [CHANGELOG.md](../main/CHANGELOG.md) —— 只列对用户有影响的变化。
+          完整的分词规则、选项说明与常见问题在 README 里。
+
+          ## 隐私
+
+          插件**完全离线**：没有网络请求、没有遥测，不上传歌词或乐谱，
+          也不保留剪贴板内容。整个插件就是一个可读的 `lyricsfiller.qml` 文件。
+
+          开发过程使用了 AI 辅助编码，但所有 MuseScore API 行为都在
+          MuseScore Studio 4.7.5 上实测验证并写成了回归测试。
           EOF
 
       - name: Create or update release
