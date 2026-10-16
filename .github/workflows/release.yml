@@ -50,14 +50,18 @@ jobs:
           unzip -l "dist/LyricsFiller-$TAG.zip"
 
       - name: Write release notes
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
+          # 用占位符 + sed 注入，不用未加引号的 heredoc：
+          # 正文里有反引号包裹的文件名，未加引号的 heredoc 会把它当命令替换执行。
           cat > release-notes.md <<'EOF'
           在文本框里编辑歌词，按语言规则切分为音节单元，顺序填入选定声部的音符下方。
           中文一字一音，英文按连字符分音节，连音线与延音线覆盖的音符只在首音填词。
 
           ## 安装
 
-          1. 下载 `LyricsFiller-vX.Y.Z.zip`，解压。
+          1. 下载 `LyricsFiller-__TAG__.zip`，解压。
           2. 将 `LyricsFiller` 文件夹放入 MuseScore 用户插件目录：
              - Windows：`文档\MuseScore4\Plugins`
              - macOS / Linux：`~/Documents/MuseScore4/Plugins`
@@ -79,8 +83,8 @@ jobs:
 
           ## 更新内容
 
-          见 [CHANGELOG.md](../main/CHANGELOG.md)。完整的分词规则、选项说明与
-          常见问题见 README。
+          本版本改动见 [CHANGELOG](__REPO_URL__/blob/main/CHANGELOG.md)；
+          完整的分词规则、选项说明与常见问题见 [README](__REPO_URL__/blob/main/README.md)。
 
           ## 隐私
 
@@ -91,6 +95,8 @@ jobs:
           开发过程使用 AI 辅助；所有 MuseScore API 行为均在
           MuseScore Studio 4.7.5 上逐项实测，并写成回归测试。
           EOF
+          sed -i "s|__TAG__|$TAG|g; s|__REPO_URL__|$REPO_URL|g" release-notes.md
+          grep -n "LyricsFiller-v\|CHANGELOG\|README" release-notes.md
 
       - name: Create or update release
         env:
