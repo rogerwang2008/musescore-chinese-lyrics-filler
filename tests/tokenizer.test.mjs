@@ -130,6 +130,42 @@ test("标点：词首标点贴到下一个字，不额外占音符", () => {
     assert.equal(shape(r.units), "“你:single 好”:single");
 });
 
+// 回归：曾经所有标点一律贴到前一个字，导致 "说：“你好”" 变成 "说：“" + "你"，
+// 开口标点（上引号、左括号、左书名号）必须看方向。
+test("标点：开口标点贴到后面的字，不粘回前一个字", () => {
+    assert.equal(shape(tok.tokenizeChinese("说：“你好”").units),
+        "说：:single “你:single 好”:single");
+    assert.equal(shape(tok.tokenizeChinese("他说（小声）道").units),
+        "他:single 说:single （小:single 声）:single 道:single");
+    assert.equal(shape(tok.tokenizeChinese("来《帆》吧").units),
+        "来:single 《帆》:single 吧:single");
+    assert.equal(shape(tok.tokenizeChinese("「起风了」").units),
+        "「起:single 风:single 了」:single");
+    assert.equal(shape(tok.tokenizeChinese("句末【注】继续").units),
+        "句:single 末:single 【注】:single 继:single 续:single");
+});
+
+test("标点：闭口标点仍贴到前面的字，破折号也是", () => {
+    assert.equal(shape(tok.tokenizeChinese("雨——很大").units),
+        "雨——:single 很:single 大:single");
+    assert.equal(shape(tok.tokenizeChinese("走了，真的。").units),
+        "走:single 了，:single 真:single 的。:single");
+});
+
+test("标点：英文块首左括号做前缀，右括号仍贴原词", () => {
+    assert.equal(shape(tok.tokenizeEnglish("go (now) there").units),
+        "go:single (now):single there:single");
+    // ASCII 引号方向无法靠字符本身判断，整对包住词时保持原样
+    assert.equal(shape(tok.tokenizeEnglish('the "rain"').units),
+        "the:single \"rain\":single");
+});
+
+test("标点：开口标点不会改变音节数", () => {
+    const bare = tok.tokenizeChinese("说你好他小声道").units.length;
+    const puncted = tok.tokenizeChinese("说：“你好”他（小）声道").units.length;
+    assert.equal(puncted, bare);
+});
+
 test("标点：连续多个标点全部并到前一个字", () => {
     const r = tok.tokenizeChinese("去了！?? 真的");
     assert.equal(shape(r.units), "去:single 了！??:single 真:single 的:single");

@@ -131,6 +131,20 @@ test("没有声明与 MuseScore 根类型同名的函数或属性", () => {
     assert.deepEqual(clashes, [], `与根类型成员重名: ${clashes.join(", ")}`);
 });
 
+// dialog 插件每次打开都会重建组件，所以"保留上次编辑"只能靠 Settings 落盘；
+// 同时这里钉住"打开时不再自动粘贴剪贴板"，避免用户刚编辑的内容被覆盖。
+test("打开对话框不再自动粘贴剪贴板，文本内容跨开关保留", () => {
+    const completed = code.match(/Component\.onCompleted:\s*\{[\s\S]*?\n {4}\}/);
+    assert.ok(completed, "找不到 Component.onCompleted 初始化块");
+    assert.doesNotMatch(completed[0], /readClipboard\s*\(\s*\)/,
+        "对话框打开时不应自动读取剪贴板");
+    assert.match(completed[0], /lyricsStore\.lyricsText/,
+        "打开时应回填上次编辑的内容");
+    assert.match(code, /Settings\s*\{/, "缺少 Settings 持久化对象");
+    assert.match(code, /lyricsStore\.lyricsText\s*=\s*text/,
+        "文本变化时必须写回 Settings，否则重开就没了");
+});
+
 // Muse.UiComponents 的 CheckBox 是 FocusScope，checked 不会随点击自动翻转，
 // 少写一行 onClicked 就是一个"看得到却点不动"的开关 —— 只能靠测试兜住。
 test("每个 CheckBox 都会自己翻转 checked", () => {

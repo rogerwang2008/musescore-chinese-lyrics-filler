@@ -17,7 +17,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //===========================================================================
 //
-// 从系统剪贴板读取歌词，按语言规则拆成"音节单元"，再顺序填入指定声部的音符。
+// 在文本框里编辑歌词（可从剪贴板导入，内容跨开关保留），按语言规则拆成
+// "音节单元"，再顺序填入指定声部的音符。
 //
 // 兼容 MuseScore Studio 4.x（在 4.7.5 上验证）。
 //
@@ -35,9 +36,9 @@ import Muse.Ui
 import Muse.UiComponents
 
 MuseScore {
-    version: "1.1.0"
+    version: "1.2.0"
     title: qsTr("Lyrics Filler 自动填词")
-    description: qsTr("Read lyrics from the clipboard and fill one syllable per note, with CJK / English tokenizing, tie and slur melisma handling.")
+    description: qsTr("Fill lyrics from the text box (with optional clipboard import), one syllable per note, with CJK / English tokenizing and tie/slur melisma handling.")
     pluginType: "dialog"
     categoryCode: "lyrics"
     thumbnailName: "lyricsfiller.png"
@@ -48,7 +49,7 @@ MuseScore {
     height: 640
 
     property var tok: buildTokenizer()
-    property string statusText: qsTr("把歌词复制到剪贴板后打开本插件，或在此粘贴。")
+    property string statusText: qsTr("在上方输入歌词，或点“从剪贴板导入”。内容会在下次打开时保留。")
     property bool cmdOpen: false
 
     // Fraction.ticks 的基准：4.7.5 实测十六分=240、八分=480、四分=960、
@@ -58,6 +59,17 @@ MuseScore {
     readonly property int ticksPerWholeNote: 3840
     // paste() 无法直接判断剪贴板内容，先写入哨兵再粘贴，未发生变化即说明剪贴板为空。
     readonly property string clipboardSentinel: "__LYRICS_FILLER_EMPTY__"
+
+    // dialog 插件每次打开都会重建组件，文本框内容并不会留在内存里，
+    // 所以"上一次编辑的结果"必须落到 QSettings 才能跨开关保留。
+    // 这里存全局一份，不按乐谱分键，避免 QSettings 无限增长。
+    Settings {
+        id: lyricsStore
+        // 显式指定分组，落盘位置就是 MuseScore4.ini 里的 [lyricsfiller]，
+        // 不依赖 QML 文件名推导，便于核对与手动清除
+        category: "lyricsfiller"
+        property string lyricsText: ""
+    }
 
     /* =====[TOKENIZER-BEGIN]===== */
     // 纯 JavaScript 分词 / 排布逻辑，不引用任何 MuseScore 对象，
@@ -144,7 +156,19 @@ MuseScore {
             return parseInt(block.slice(1, block.length - 1), 10);
         }
 
+        // 成对标点里"开口"的那一半：左引号、左括号、左书名号等。
+        // 它们必须贴在后面的字上，否则 "说：“你好”" 会把上引号粘到"说"后面。
+        // 其余标点（句号、逗号、右半括号、破折号……）默认归到前一个字。
+        var OPEN_PUNCT = {
+            "\u201c": 1, "\u2018": 1, "\u201e": 1, "\u00ab": 1, "\u2039": 1,   // “ ‘ „ « ‹
+            "\u3008": 1, "\u300a": 1, "\u300c": 1, "\u300e": 1,               // 〈 《 「 『
+            "\u3010": 1, "\u3014": 1, "\u3016": 1, "\u301d": 1,               // 【 〔 〖 〝
+            "\uff08": 1, "\uff3b": 1, "\uff5b": 1,                            // （ ［ ｛
+            "(": 1, "[": 1, "{": 1, "<": 1
+        };
+
         // 音节收集器。标点不占音符，但也不能丢：
+        //   punct(str)  —— 按方向分派：开口标点走 before，其余走 after。
         //   after(str)  —— 跟在音节后面的标点，贴到前一个音节末尾（"栓，"）；
         //                  前面还没有音节时退化成 before(str)。
         //   before(str) —— 词首标点（引号等），攒起来贴到下一个音节前面（"“我"）。
@@ -152,35 +176,52 @@ MuseScore {
         function unitSink() {
             var units = [];
             var pending = "";
+
+            function before(str) { pending += str; }
+
+            function after(str) {
+                if (units.length === 0) {
+                    pending += str;
+                    return;
+                }
+                var last = units[units.length - 1];
+                last.text += str;
+                // begin / middle 会让 MuseScore 往后补画连字符，
+                // 既然词已经被标点截断，就不能再往下了。
+                if (last.syllabic === "begin") last.syllabic = "single";
+                else if (last.syllabic === "middle") last.syllabic = "end";
+            }
+
+            function push(text, syllabic, bracketed) {
+                units.push({
+                    text: pending + text,
+                    syllabic: syllabic || "single",
+                    bracketed: !!bracketed
+                });
+                pending = "";
+            }
+
             return {
                 units: units,
                 pending: function () { return pending; },
-                before: function (str) { pending += str; },
-                after: function (str) {
-                    if (units.length === 0) {
-                        pending += str;
-                        return;
+                before: before,
+                after: after,
+                punct: function (str) {
+                    for (var i = 0; i < str.length; i++) {
+                        var ch = str.charAt(i);
+                        if (OPEN_PUNCT[ch]) {
+                            before(ch);
+                        } else {
+                            after(ch);
+                        }
                     }
-                    var last = units[units.length - 1];
-                    last.text += str;
-                    // begin / middle 会让 MuseScore 往后补画连字符，
-                    // 既然词已经被标点截断，就不能再往下了。
-                    if (last.syllabic === "begin") last.syllabic = "single";
-                    else if (last.syllabic === "middle") last.syllabic = "end";
                 },
-                push: function (text, syllabic, bracketed) {
-                    units.push({
-                        text: pending + text,
-                        syllabic: syllabic || "single",
-                        bracketed: !!bracketed
-                    });
-                    pending = "";
-                }
+                push: push
             };
         }
 
         // 中文：一个汉字 = 一个音节单元；括号内容整体 = 一个单元；
-        // 夹带的拉丁字母/数字按词聚合；空白丢弃，标点贴到前一个字上。
+        // 夹带的拉丁字母/数字按词聚合；空白丢弃，标点按方向归到相邻的字上。
         function tokenizeChinese(text) {
             var warnings = [];
             var protectedText = protectGroups(text, warnings);
@@ -226,14 +267,14 @@ MuseScore {
                     sink.push(word, "single", false);
                     continue;
                 }
-                // 标点贴到前一个字上。连字符例外：它是英文的音节边界标记，
+                // 标点按方向归到相邻的字上。连字符例外：它是英文的音节边界标记，
                 // 也是"延长"的手写习惯，贴进歌词反而会被当成文字。
                 if (!SPACE_RE.test(ch) && ch !== "-") {
-                    sink.after(ch);
+                    sink.punct(ch);
                 }
             }
             if (sink.pending().length > 0) {
-                warnings.push("开头有一段标点，前面没有字可跟，已忽略。");
+                warnings.push("有标点找不到可以粘贴的字，已忽略。");
             }
             return { units: sink.units, warnings: warnings };
         }
@@ -276,13 +317,15 @@ MuseScore {
                     }
                 }
                 if (pieces.length === 0) {
-                    // 整块都是标点（例如单独的破折号），跟回前一个音节；
+                    // 整块都是标点（例如单独的破折号），按方向归到相邻音节；
                     // 单独的 "-" 只是音节边界，什么都不跟，直接忽略。
                     if ((lead + trail).length > 0) {
-                        sink.after(lead + trail);
+                        sink.punct(lead + trail);
                     }
                     continue;
                 }
+                // 块首标点一律做前缀：ASCII 引号无法靠字符本身判断方向，
+                // 而 "rain" 这种整体被引号包住的写法必须保住。
                 if (lead.length > 0) {
                     sink.before(lead);
                 }
@@ -292,11 +335,11 @@ MuseScore {
                     sink.push(pieces[p], syllabicOf(wordStart, wordEnd), false);
                 }
                 if (trail.length > 0) {
-                    sink.after(trail);
+                    sink.punct(trail);
                 }
             }
             if (sink.pending().length > 0) {
-                warnings.push("开头有一段标点，前面没有字可跟，已忽略。");
+                warnings.push("有标点找不到可以粘贴的字，已忽略。");
             }
             return { units: sink.units, warnings: warnings };
         }
@@ -397,7 +440,7 @@ MuseScore {
             StyledTextLabel {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: qsTr("歌词文本（自动读取剪贴板，也可手动 Ctrl+V 粘贴到这里）")
+                text: qsTr("歌词文本")
             }
 
             Rectangle {
@@ -422,9 +465,38 @@ MuseScore {
                         wrapMode: TextEdit.WrapAnywhere
                         textFormat: TextEdit.PlainText
                         selectByMouse: true
-                        onTextChanged: root.refreshUnitCount()
+                        onTextChanged: {
+                            root.refreshUnitCount();
+                            lyricsStore.lyricsText = text;
+                        }
                     }
                 }
+            }
+
+            // 文本框的工具行：这两个按钮只作用于上方文本框
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                FlatButton {
+                    text: qsTr("从剪贴板导入")
+                    toolTipTitle: qsTr("用系统剪贴板的内容替换上方文本框")
+                    onClicked: {
+                        root.readClipboard();
+                        root.refreshUnitCount();
+                    }
+                }
+
+                FlatButton {
+                    text: qsTr("清空")
+                    toolTipTitle: qsTr("清掉保留的上次内容，开始新的歌词")
+                    onClicked: {
+                        lyricsField.text = "";
+                        setStatus(qsTr("已清空。"));
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
             }
 
             RowLayout {
@@ -550,21 +622,6 @@ MuseScore {
                 }
 
                 Item { Layout.fillWidth: true }
-
-                FlatButton {
-                    text: qsTr("重新读取剪贴板")
-                    toolTipTitle: qsTr("用系统剪贴板的内容替换上方文本框")
-                    onClicked: {
-                        root.readClipboard();
-                        root.refreshUnitCount();
-                    }
-                }
-
-                FlatButton {
-                    text: qsTr("统计")
-                    toolTipTitle: qsTr("先检查音节数与音符数是否匹配，不改动乐谱")
-                    onClicked: root.report(root.analyze(), false)
-                }
             }
 
             StyledTextLabel {
@@ -578,6 +635,12 @@ MuseScore {
                 spacing: 10
 
                 Item { Layout.fillWidth: true }
+
+                FlatButton {
+                    text: qsTr("统计")
+                    toolTipTitle: qsTr("先检查音节数与音符数是否匹配，不改动乐谱")
+                    onClicked: root.report(root.analyze(), false)
+                }
 
                 FlatButton {
                     text: qsTr("关闭")
@@ -598,7 +661,8 @@ MuseScore {
     // 所以初始化放在组件完成回调里做（对话框打开时即触发）。
     Component.onCompleted: {
         syncFromSelection();
-        readClipboard();
+        // 不再自动粘贴剪贴板：打开对话框时用上次编辑的内容回填文本框
+        lyricsField.text = lyricsStore.lyricsText;
         refreshUnitCount();
     }
 
@@ -929,7 +993,7 @@ MuseScore {
 
     function refreshUnitCount() {
         if (lyricsField.text.trim() === "") {
-            setStatus(qsTr("剪贴板是空的或不含文本。请先复制歌词，或直接把歌词粘贴到上方文本框。"));
+            setStatus(qsTr("文本框是空的。请输入歌词，或点“从剪贴板导入”。"));
             return;
         }
         var result = currentUnits();
